@@ -9,22 +9,372 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+library(tidyverse)
 ```
 
-## Including Plots
+```{r}
+library(tidyverse)
+library(readr)
+health_full <- read_csv("https://chronicdata.cdc.gov/api/views/cwsq-ngmh/rows.csv?accessType=DOWNLOAD")
+```
+```{r}
+library(dplyr)
+health_ca <- dplyr::filter(health_full, StateAbbr == "CA")
+```
+#The filter function is native to R, so to differentiate and use the Filter in dplyr, you need to use the notation dplyr::filter
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+pge_20_q1_elec <- read.csv("PGE_2020_Q1_ElectricUsageByZip.csv")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+write.csv(health_ca, "health_ca.csv")
+```
+
+```{r}
+saveRDS(health_ca, "health_ca.rds")
+```
+
+```{r}
+health_ca <- readRDS("health_ca.rds")
+```
+
+```{r}
+save(health_ca, pge_20_q1_elec, file = "working_datasets.rda")
+```
+
+```{r}
+load("working_datasets.rda")
+```
+
+```{r}
+save.image("progress1.rda")
+```
+
+```{r}
+load("progress1.rda")
+```
+
+#Let’s consider the use of for loops, a foundational technique in programming languages, in this case for reading multiple data files. A for loop is useful when, say, loading in the multiple PG&E datasets, which all have a similar naming structure except for systematic changes in a part of the file name, like Q1 to Q2 to Q3 to Q4.
+
+#For loops are written with the structure for(dummy_variable_name in range_of_real_objects) {code_to_execute}. In the example below, I’ll use this structure to loop through quarter in quarters, where quarters <- 1:4, which is just a vector of the integers 1 through 4, and quarter becomes a variable that holds each integer consecutively as the script within the for loop is executed 4 times. I then paste this changing variable into an otherwise fixed set of text fragments to create a string in the variable filename that represents the full file path to retrieve one of the PG&E CSVs we’ve downloaded into the working directory (note that I put them in a sub-folder called “pge”). Then I read_csv(filename) in a similar way as we’ve practiced before into a variable called temp, for “temporary”. Lastly, I use rbind() to “stack like pancakes” two dataframes that share the same column names. So by the end of the for loop, four separate CSVs are read into R and then stacked together.
+
+```{r}
+library(tidyverse)
+
+year <- 2020
+quarters <- 1:4
+type <- "Electric"
+
+pge_20_elec <- NULL
+
+for(quarter in quarters) {
+  filename <- 
+    paste0(
+      "PGE_",
+      year,
+      "_Q",
+      quarter,
+      "_",
+      type,
+      "UsageByZip.csv"
+    )
+
+  print(filename)
+  
+  temp <- read_csv(filename, lazy = F)
+  
+  pge_20_elec <- rbind(pge_20_elec,temp)
+  # Note rbind requires field names to be consistent for every new thing that you add.
+
+  saveRDS(pge_20_elec, "pge_20_elec.rds")
+}
+```
+
+```{r}
+library(tidyverse)
+
+pge_filter <- filter(pge_20_elec, CUSTOMERCLASS %in% c("Elec- Residential","Elec- Commercial"))
+```
+#Below is the same code as above styled in a more readable way:
+
+```{r}
+pge_filter <-
+  filter(
+    pge_20_elec,
+    CUSTOMERCLASS %in%
+      c(
+        "Elec- Residential",
+        "Elec- Commercial"
+      )
+  )
+```
+
+
+```{r}
+write.csv(pge_filter, "pge_filter.csv")
+```
+
+```{r}
+names(pge_filter)
+```
+```{r}
+head(pge_filter)
+```
+
+```{r}
+pge_filter[1,1]
+```
+
+```{r}
+pge_filter[1:5,1:5]
+```
+
+```{r}
+pge_filter[1:5,c("ZIPCODE","MONTH","YEAR")]
+```
+
+```{r}
+pge_filter[1:5, ]
+```
+
+```{r}
+pge_filter[1:5, ]$YEAR
+```
+
+#Note that using a colon creates a vector of consecutive numbers, and c() again has a similar function but lets you create your own vectors. Also note that in the last two examples, no “column” information is given in the brackets, which will then be interpreted as “all columns”. You could do this on the “row” side as well. Using a $ “extracts” one column from a dataframe, thereby leaving just a vector.
+
+#Anyway, we can see that YEAR is not useful if the entire dataframe is from 2020. The following two commands have the same outcome, but in this case, “selectively removing” using a - sign is much simpler.
+
+```{r}
+pge_select <-
+  select(
+    pge_filter,
+    ZIPCODE,
+    MONTH,
+    CUSTOMERCLASS,
+    COMBINED,
+    TOTALCUSTOMERS,
+    TOTALKWH,
+    AVERAGEKWH
+)
+```
+```{r}
+pge_select <-
+  select(
+    pge_filter,
+    -YEAR
+  )
+```
+
+#There are two other fields that you might consider removing at this stage. COMBINED, according to the original PG&E dataset, lets you know whether the given ZIP code’s results have been combined with a neighboring ZIP code to meet state privacy requirements. If you wanted to quickly see what the distribution of yeses and nos is for this field, you could use table() and the $ technique to extract one column vector:
+
+```{r}
+table(pge_select$COMBINED)
+```
+
+```{r}
+pge_select <-
+  select(
+    pge_filter,
+    -c(YEAR, COMBINED, AVERAGEKWH)
+  )
+```
+
+#group_by() and summarize() are typically used in conjunction with each other to create aggregated results that are similar to what you might be familiar with if you’ve used pivot tables in Excel or Google Sheets before. In group_by() you specify the columns you want to “keep” as discrete categories while collapsing information from other fields. For example, if we didn’t want to retain separate energy data for separate ZIP codes, but we wanted to retain separate energy data for separate months and customer classes, then we’d do:
+
+```{r}
+pge_group <- group_by(
+  pge_select,
+  MONTH,
+  CUSTOMERCLASS
+)
+```
+
+#Nothing will look different about this output, but you can imagine it “knowing” something special about the MONTH and CUSTOMERCLASS fields, which can be leveraged for certain follow-up operations like summarize() and mutate(), which both allow you to create new fields of data (like adding a new column in Excel with formulas referencing existing columns). First we’ll demonstrate summarize() which specifically “collapses” data based on some kind of mathematical operation, like sum(), mean(), min(), etc.
+
+```{r}
+pge_summarize <-
+  summarize(
+    pge_group,
+    TOTALKWH = 
+      sum(
+        TOTALKWH, 
+        na.rm = T
+      )
+  )
+```
+
+#summarize() produces an entirely new dataframe that will only by default retain fields that you called out in group_by(), so the additional arguments you provide summarize() are essentially new fields you want to create based on summarizations of original fields. Here, the first TOTALKWH is the creation of a whole new variable, and you typically use = inside of such operations instead of <- since these aren’t “Environment variables”. Note we’re intentionally giving this new variable the same name as what it’s based on, since it isn’t conceptually different, but we could have given this a completely different name. The sum() operation will take all values of TOTALKWH from the original pge_group dataframe that share the same MONTH and CUSTOMERCLASS and add them together. na.rm = T is an additional argument that tells sum() to ignore empty fields (“NAs”) it may encounter, which otherwise would trigger an error. You should be aware of whether NAs exist which might be an important signal of something wrong with the data, but as long as they’re not fundamental problems, you’d generally include na.rm = T in any of these summarization operations.
+
+#You’ll notice that pge_summarize is significantly altered, holding only 24 rows (24 unique combinations of 12 months and 2 customer classes), and holding only one field of actual “observed information”, the total kilowatt-hours for that month and customer class. You could have added additional summarization fields, but first I’ll note that pge_summarize, as is, is what is called “tidy” data, a concept pioneered by the tidyverse. This chapter from Hadley’s textbook gives the best explanation. pivot_longer() and pivot_wider() can be used to convert back and forth between “tidy” data and what we might be more used to from an Excel background, as shown:
+
+```{r}
+pge_wide <-
+  pivot_wider(
+    pge_summarize,
+    names_from = CUSTOMERCLASS,
+    values_from = TOTALKWH
+  )
+```
+
+#Generally, wider data is easier to look at, but longer, “tidier” data is easier to do a variety of operations on, so you should be familiar with how to go back and forth.
+
+```{r}
+pge_tidy <-
+  pivot_longer(
+    pge_wide,
+    c("Elec- Commercial", "Elec- Residential"),
+    names_to = "CUSTOMERCLASS",
+    values_to = "TOTALKWH"
+  )
+```
+
+#pge_tidy is the same as pge_summarize. Note that unlike in select() and other fundamental functions, in pivot_longer() you need to enclose field names in quotation marks. I’m personally not aware of consistent rules behind why a function does or doesn’t require quotations, so consider this the kind of function-specific know-how you’ll develop with experience.
+
+#Now let’s go back to the summarize() step to add TOTALCUSTOMERS as well, and then re-compute AVERAGEKWH after the summarization operation using mutate().
+
+```{r}
+pge_summarize <-
+  summarize(
+    pge_group,
+    TOTALKWH = 
+      sum(
+        TOTALKWH, 
+        na.rm = T
+      ),
+    TOTALCUSTOMERS =
+      sum(
+        TOTALCUSTOMERS,
+        na.rm = T
+      )
+  )
+```
+```{r}
+
+pge_mutate <-
+  mutate(
+    pge_summarize,
+    AVERAGEKWH =
+      TOTALKWH/TOTALCUSTOMERS
+  )
+```
+
+#mutate() is the closest thing to, in Excel, creating a new field, typing in a formula, and then “dragging” that formula down the length of the spreadsheet. It’ll likely become the dplyr function you use the most.
+#The “pipe”, %>%, is designed to string functions together like an assembly line, where an “object” is passed from function to function in stages of manipulation. It’s worth getting a full explanation directly from Hadley here, but my own paraphrase is that wherever you can conceive of a pipeline, you should built the habit of coding with pipes which will simplify the code for both you and readers. I consider the pipes as fundamentally clarifying the nature of many operations to better resemble our mental model of what’s “happening” to a data object, treating the functions more as “verbs” which sequentially “act” on a single object. The pipe itself is very easy with the shortcut Ctrl+Shift+M.
+
+#Reviewing many of the previous chunks, you’ll notice that the first argument in a function is often the dataframe being acted upon (this is not 100% the case, but we’ll be able to deal with the outlier situations no problem once we encounter such a case). One key thing a pipeline does is it removes the need to specify this first argument, since it’s self-evidently “the object in the pipeline”. So an important conceptual change to how you use functions is that you start to “ignore” the argument that asks for the “data”, which is often the first argument. Besides that, once you see the example below, the rest of the pipeline technique should appear straightforward.
+
+```{r}
+pge_final <-
+  pge_20_elec %>% 
+  filter(
+    CUSTOMERCLASS %in% 
+      c(
+        "Elec- Residential",
+        "Elec- Commercial"
+      )
+  ) %>% 
+  select(
+    -c(YEAR, COMBINED, AVERAGEKWH)
+  ) %>% 
+  group_by(MONTH, CUSTOMERCLASS) %>% 
+  summarize(
+    TOTALKWH = 
+      sum(
+        TOTALKWH, 
+        na.rm = T
+      ),
+    TOTALCUSTOMERS =
+      sum(
+        TOTALCUSTOMERS,
+        na.rm = T
+      )
+  ) %>% 
+  mutate(
+    AVERAGEKWH =
+      TOTALKWH/TOTALCUSTOMERS
+  )
+```
+```{r}
+pge_final
+```
+
+```{r}
+library(tidyverse)
+library(plotly)
+
+pge_chart <-
+  pge_final %>% 
+  ggplot() +
+  geom_bar(
+    aes(
+      x = MONTH %>% factor(),
+      y = TOTALKWH,
+      fill = CUSTOMERCLASS
+    ),
+    stat = "identity",
+    position = "stack"
+  ) +
+  labs(
+    x = "Month",
+    y = "kWh",
+    title = "PG&E Territory Monthly Electricity Usage, 2019",
+    fill = "Electricity Type"
+  )
+```
+```{r}
+pge_chart
+```
+
+#Notes:
+
+<!-- I’m choosing to store the plot itself in a variable called pge_chart, which means that to display it in the knitted web page, I need to include the last line. If I didn’t want to store the result in a variable and just plot directly, I’d just start the longer operation with pge_final %>%. -->
+<!-- The aes() argument is pretty standard across all kinds of plots, and should correspond well to choices you’d typically make in Excel. fill = lets you specify a field with discrete options that you’d like to use to split your data into groups; in a sense, it’s similar to group_by(). Note that there are different arguments that have a similar grouping effect, and may apply only to different chart types and field types, like linetype = or size =, which you’ll learn as needed. -->
+<!-- You could have put the aes() argument inside of ggplot() itself, which would imply that those selections are standard for the entire plot. That happens to be the case here, but I would recommend generally putting this inside of specific plot type function, like geom_bar() or geom_point(), because that lets you make explicit decisions of what data is used for each plot type if you were to combine multiple plot types together. -->
+<!-- factor() converts the integers in the MONTH field into discrete choices so they refer to months like January, February, etc. instead of just numbers. You are welcome to remove the pipe to factor() to see what happens if you don’t do this. Factors are also typically used when you have a vector of strings and you want to specify a unique order that isn’t default alphabetical (I’ll leave you to learn formatting online as the need arises). -->
+<!-- stat = here especially lets you distinguish between “identity” and “count” which would be the difference between counting kilowatt-hours on the y-axis or counting the number of entries in the dataframe (more similar to a histogram). You’re encouraged to adjust this to see the effect on the plot. -->
+<!-- position = here especially lets you choose between stacking the two different customer classes or “dodge” which would put them side by side. Again, you’re encouraged to try it out. -->
+<!-- labs() generally lets you specify labels, and in this case, because you supplied a fill = argument earlier, you can change the name of the legend by using fill =. There are additional functions you can add to the operation to also customize the labels for the items in the legend, but generally I’d recommend just mutating the original data in advance so that the labels are already what you’d like. -->
+
+
+```{r}
+library(plotly)
+library(ggplot2)
+pge_chart %>% ggplotly()
+```
+
+#If you’re planning to create web reports, there’s essentially never a reason you wouldn’t want to give your reader an interactive plot if you can, and if you so far only know how to generate plots using ggplot2, this is a nifty conversion trick. Otherwise, plotly is less user-friendly to directly code in but provides additional customizability, and is something you’d want to pick up as you start creating dashboards. Here, for your curiosity, would be a recreation of the above plot in native plotly:
+
+```{r}
+plot_ly() %>% 
+  add_trace(
+    data = pge_final %>% filter(CUSTOMERCLASS == "Elec- Commercial"),
+    x = ~MONTH %>% factor(),
+    y = ~TOTALKWH,
+    type = "bar",
+    name = "Residential"
+  ) %>% 
+  add_trace(
+    data = pge_final %>% filter(CUSTOMERCLASS == "Elec- Commercial"),
+    x = ~MONTH %>% factor(),
+    y = ~TOTALKWH,
+    type = "bar",
+    name = "Commercial"
+  ) %>% 
+  layout(
+    xaxis = list(
+      title = "Month",
+      fixedrange = T
+    ),
+    yaxis = list(
+      title = "kWh",
+      fixedrange = T
+    ),
+    barmode = "stack",
+    legend = list(title = list(text = "Electricity Type"))
+  ) %>% 
+  config(displayModeBar = F)
+```
+
